@@ -15,6 +15,7 @@ import argparse
 import inspect
 import json
 import os
+import warnings
 from pathlib import Path
 
 import torch
@@ -393,7 +394,7 @@ def generate_response(
     model,
     tokenizer,
     user_message: str,
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 256,
     temperature: float = 0.7,
 ) -> str:
     """Generate assistant response given user message."""
@@ -411,7 +412,7 @@ def generate_response(
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -523,23 +524,47 @@ def run_demo(adapter_path: str | None = None):
         print("Gradio not installed. Run: pip install gradio")
         return
 
+    # Suppress harmless console warnings during demo
+    warnings.filterwarnings(
+        "ignore",
+        message="To copy construct from a tensor",
+        category=UserWarning,
+        module="transformers",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message="bitsandbytes was compiled without GPU",
+        category=UserWarning,
+        module="bitsandbytes",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message="torch_dtype.*deprecated",
+        category=UserWarning,
+        module="transformers",
+    )
+
     print("Loading model (this may take a minute)...")
     model, tokenizer = load_model_for_inference(adapter_path)
 
-    def chat(user_input: str, history: list) -> tuple:
-        if not user_input.strip():
-            return history, ""
-        response = generate_response(model, tokenizer, user_input)
-        history.append((user_input, response))
-        return history, ""
+    # Shorter default max tokens for faster replies on CPU/MPS (each token = 1 forward pass)
+    DEFAULT_MAX_TOKENS = 192
 
     with gr.Blocks(title="Customer Support Chatbot") as demo:
         gr.Markdown("# Customer Support Chatbot (Fine-tuned Llama 3.2 3B)")
         gr.Markdown(
-            "Ask about orders, shipping, refunds, returns, and more."
+            "Ask about orders, shipping, refunds, returns, and more. "
+            "Lower **Max response tokens** for faster replies (e.g. on Mac)."
         )
 
-        chatbot = gr.Chatbot(label="Conversation")
+        chatbot = gr.Chatbot(label="Conversation", type="messages")
+        max_tokens_slider = gr.Slider(
+            minimum=64,
+            maximum=512,
+            value=DEFAULT_MAX_TOKENS,
+            step=32,
+            label="Max response tokens (lower = faster)",
+        )
         msg = gr.Textbox(
             label="Your question",
             placeholder="e.g., I need to cancel my order #12345",
@@ -550,15 +575,22 @@ def run_demo(adapter_path: str | None = None):
             submit = gr.Button("Send")
             clear = gr.Button("Clear")
 
-        def respond(message, chat_history):
+        def respond(message, chat_history, max_tokens):
             if not message.strip():
                 return chat_history, ""
-            response = generate_response(model, tokenizer, message)
-            chat_history.append((message, response))
-            return chat_history, ""
+            n = int(max_tokens) if max_tokens else DEFAULT_MAX_TOKENS
+            response = generate_response(
+                model, tokenizer, message, max_new_tokens=n
+            )
+            new_messages = chat_history + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": response},
+            ]
+            return new_messages, ""
 
-        msg.submit(respond, [msg, chatbot], [chatbot, msg])
-        submit.click(respond, [msg, chatbot], [chatbot, msg])
+        inputs = [msg, chatbot, max_tokens_slider]
+        msg.submit(respond, inputs, [chatbot, msg])
+        submit.click(respond, inputs, [chatbot, msg])
         clear.click(lambda: [], None, chatbot, queue=False)
 
     demo.launch(share=False)
