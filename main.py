@@ -66,9 +66,34 @@ TEST_PROMPTS = [
     "Help me with a return - the item doesn't fit.",
 ]
 
+# Llama 3.2 chat template (base model has none; SFTTrainer needs it)
+LLAMA_32_CHAT_TEMPLATE = (
+    "{% for message in messages %}"
+    "{% if message['role'] == 'system' %}"
+    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+    "{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'user' %}"
+    "<|start_header_id|>user<|end_header_id|>\n\n"
+    "{{ message['content'] }}<|eot_id|>"
+    "{% elif message['role'] == 'assistant' %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "{{ message['content'] }}<|eot_id|>"
+    "{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}"
+    "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    "{% endif %}"
+)
+
 # =============================================================================
 # Data Preparation
 # =============================================================================
+
+
+def _set_chat_template_if_missing(tokenizer):
+    """Set Llama 3.2 chat template on tokenizer when missing (e.g. base model)."""
+    if getattr(tokenizer, "chat_template", None) is None:
+        tokenizer.chat_template = LLAMA_32_CHAT_TEMPLATE
 
 
 def format_as_chat(example: dict) -> dict:
@@ -143,6 +168,7 @@ def get_model_and_tokenizer():
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    _set_chat_template_if_missing(tokenizer)
 
     used_4bit = True
     device_map = None
@@ -219,13 +245,32 @@ def train(
 
     model, tokenizer, used_4bit, use_fp16 = get_model_and_tokenizer()
 
+    # fp16 + MPS requires PyTorch >= 2.5 (accelerate limitation)
+    mps_used = bool(
+        getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()
+    )
+    if use_fp16 and mps_used:
+        try:
+            parts = torch.__version__.split("+")[0].split(".")
+            major, minor = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+            if (major, minor) < (2, 5):
+                use_fp16 = False
+                print(
+                    "PyTorch < 2.5: disabling fp16 on MPS (using float32)."
+                )
+        except (ValueError, IndexError):
+            use_fp16 = False
+
+    # MPS does not support bf16; use bf16 only on CUDA/4-bit path
+    use_bf16 = (not use_fp16) and (not mps_used)
+
     # Use smaller batch when not using 4-bit (e.g. Mac) to avoid OOM
     batch_size = TRAINING_CONFIG["batch_size"] if used_4bit else 1
     grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
     if not used_4bit:
         grad_accum = min(16, grad_accum * 2)  # Keep effective batch size similar
 
-    # SFTConfig (trl) holds both training args and max_length; MPS uses fp16
+    # SFTConfig (trl) holds both training args and max_length
     max_len = TRAINING_CONFIG["max_seq_length"]
     try:
         sft_args = SFTConfig(
@@ -237,7 +282,7 @@ def train(
             num_train_epochs=TRAINING_CONFIG["epochs"],
             learning_rate=TRAINING_CONFIG["learning_rate"],
             fp16=use_fp16,
-            bf16=not use_fp16,
+            bf16=use_bf16,
             logging_steps=10,
             eval_strategy="epoch",
             save_strategy="epoch",
@@ -256,7 +301,7 @@ def train(
             num_train_epochs=TRAINING_CONFIG["epochs"],
             learning_rate=TRAINING_CONFIG["learning_rate"],
             fp16=use_fp16,
-            bf16=not use_fp16,
+            bf16=use_bf16,
             logging_steps=10,
             eval_strategy="epoch",
             save_strategy="epoch",
@@ -339,6 +384,7 @@ def load_model_for_inference(adapter_path: str | None = None, base_only: bool = 
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    _set_chat_template_if_missing(tokenizer)
 
     return model, tokenizer
 
