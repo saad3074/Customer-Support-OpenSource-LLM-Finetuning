@@ -1,0 +1,78 @@
+# ================================
+# Python
+# ================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# ================================
+# Jupyter / IPython
+# ================================
+.ipynb_checkpoints/
+.profile_default/
+.ipython/
+
+# ================================
+# Environment / Secrets
+# ================================
+.env
+.env.*
+*.env
+
+# ================================
+# Hugging Face / LLM Artifacts
+# ================================
+# Model weights & adapters (DO NOT COMMIT)
+outputs/
+checkpoints/
+adapter/
+adapters/
+models/
+model/
+hf_cache/
+
+# Hugging Face cache (common on Colab / local)
+.cache/
+huggingface/
+.huggingface/
+
+# ================================
+# Training Logs & Experiment Tracking
+# ================================
+logs/
+wandb/
+runs/
+tensorboard/
+tb_logs/
+
+# ================================
+# Data (large or derived)
+# ================================
+data/raw/
+data/processed/
+*.arrow
+*.parquet
+
+# ================================
+# OS / Editor
+# ================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ================================
+# Temporary / Misc
+# ================================
+tmp/
+temp/
+*.log

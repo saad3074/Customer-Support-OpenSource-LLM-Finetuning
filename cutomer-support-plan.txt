@@ -1,0 +1,147 @@
+CUSTOMER SUPPORT CHATBOT - FINE TUNING PLAN
+
+This can explains the plan of Bitext Customer Support dataset, mapping from raw data to the fine-tuning task, data preparation pipeline for QLoRA training, and a **generalization strategy** to ensure the model works on any test data—including queries not seen during training.
+
+WHAT WE ARE DOING
+
+We take Llama 3.2 3B model and fine tune it with QLoRA. The goal is to make a chatbot that answers customer support questions. It should sound professional and give correct answers.
+
+
+ABOUT THE DATA
+
+Where to get it:
+Hugging Face dataset: Bitext-customer-support-llm-chatbot-training-dataset
+
+Data Rows: 26,900 rows
+All in one train split. No validation split comes with it.
+
+Data Columns:
+
+1- instruction: This is what the customer asks. Like "I need to cancel my order" or "help me with refund". Length is between 6 to 92 characters.
+2- response: This is what the support agent should reply. The correct answer. Length is between 50 to 2500 characters. Some are short. Some are long with many steps.
+3- category: Big group like ORDER or SHIPPING or PAYMENT. There are 11 different categories.
+4- intent: Small group like cancel_order or track_order or refund. There are 27 different intents.
+5- flags: Some kind of multiple unique values. We can ignore this for training.
+
+Important thing about the data:
+Same question can be asked in many ways. For example "cancel order" can be "I need to cancel", "help me canceling", "can you cancel my order" and so on. The dataset has many variations. This is good. Model will learn different ways people ask.
+
+Also the data has typos sometimes. Like "oorder" instead of "order". Or "pucrhase" instead of "purchase". This is also good. Real users make typos.
+
+Some customers are polite and some are angry. The dataset has both. Good for real world.
+
+
+PLACEHOLDERS - IMPORTANT
+
+The data uses placeholders instead of real company info. For example:
+{{Order Number}} - means put the real order ID here
+{{Online Company Portal Info}} - means login page URL
+{{Customer Support Hours}} - when support is available
+{{Customer Support Phone Number}} - support phone
+{{Website URL}} - company website
+{{Company}} - company name
+
+Why use placeholders? So the model learns the pattern not the exact text. When i use the model in my app i can replace these with real values from my database or config. Same model works for different companies.
+
+
+HOW TO USE THIS DATA FOR TRAINING
+
+Step 1: Load the data
+Use datasets library. Load from bitext/Bitext-customer-support-llm-chatbot-training-dataset.
+
+Step 2: Convert to chat format
+Each row becomes one conversation with 3 parts:
+System says: You are a helpful customer support assistant.
+User says: the instruction text
+Assistant says: the response text
+
+This is what Llama expects. SFTTrainer or Hugging Face Trainer also expects this format.
+
+Step 3: Split for validation
+Dataset has no validation. Make my own dataset. Take 5 percent for validation. 95 percent for training. Use seed 42 so results are same every time. Better if we can split by intent so both train and validation have all types of questions.
+
+Step 4: Optional
+if we can remove very short or very long examples if they cause problems. like filter by category or if only want order related stuff. But for start use all data.
+
+
+WHAT TO DO WITH PLACEHOLDERS
+
+Option A - we cna Keep placeholders.
+Train with placeholders as is and model can learns when to use them and when we can run the model in production, we can replace {{Order Number}} with real order ID from system and same for other placeholders also.
+
+Option B - Replace placeholders with generic text
+We can Change {{Order Number}} to "my order number" before training. it can return simpler output but less flexible.
+
+Option C - Remove placeholders
+Strip all {{...}} from data and it will only add values at inference time.
+
+
+TRAINING SETTINGS
+
+max_seq_length: 512 or 1024. Some long responses will get cut off so we can watch the loss.
+batch_size: 1 to 4. Small because GPU memory.
+gradient_accumulation_steps: 4 to 8. To simulate bigger batch.
+epochs: 1.
+seed: 42.
+
+Before full training we will test with >= 100 examples and we can make sure everything is workiing. Then we will start to do full training.
+
+
+WILL IT WORK ON NEW QUESTIONS?
+
+The model sees 27 intents during training. It sees many ways to ask each question. But if user asks something new? Or asks in a different way?
+
+Paraphrases: The dataset has many variations. So "I wanna cancel 12345" should work even if we never saw that exact text. Because we saw similar.
+
+New intents: If user asks "tell me a joke" the model might not know what to do. Add a few examples in training. User says "tell me a joke". Assistant says "I am here to help with orders and shipping. How can I help you?" This teaches the model to redirect.
+
+Placeholders: At inference replace {{...}} with real values. So same model works for any company.
+
+Test prompts: We can create 10 to 15 test questions like "I need to cancel order X" or "where is my package" or "how to get refund". then we have compare base model vs fine tuned model. then we can see which one is better and whcih one is helpfull, what is his tone, and if answer is specific not generic.
+
+
+TESTING IDEAS
+
+We can try with different types of questions:
+
+Same intent new words - "I wanna cancel 12345"
+Typing like this - "I need to cancle my order"
+change text structure - "Order 12345 please cancel it"
+Weird case - "Cancel everything"
+Out of scope - "What is the weather"
+
+Then we can check if model handles edge cases or not.
+
+
+WHAT TO DO AFTER TRAINING
+
+We can check with 20-30 outputs for checking validation loss. by comparing base vs fine tuned on out test prompts. If some intents are weak then we can add more examples and train again.
+
+
+TEST CODE:
+
+Load and format:
+from datasets import load_dataset
+ds = load_dataset("bitext/Bitext-customer-support-llm-chatbot-training-dataset")
+ds = ds["train"].train_test_split(test_size=0.05, seed=42)
+
+def format_example(ex):
+    return {
+        "messages": [
+            {"role": "system", "content": "You are a helpful customer support assistant."},
+            {"role": "user", "content": ex["instruction"]},
+            {"role": "assistant", "content": ex["response"]}
+        ]
+    }
+
+ds = ds.map(format_example, remove_columns=ds["train"].column_names)
+print(ds["train"][0])
+
+Placeholders to replace when use the model:
+{{Order Number}} - put real order ID
+{{Online Company Portal Info}} - put login URL
+{{Customer Support Hours}} - put support hours
+{{Customer Support Phone Number}} - put phone number
+{{Website URL}} - put website
+
+
