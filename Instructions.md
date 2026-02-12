@@ -161,6 +161,25 @@ Focus on:
 - Tone and professionalism
 - Specificity (less generic responses)
 
+### Evaluation report (HTML)
+
+After evaluation, generate a **self-contained HTML report** for demos:
+
+```bash
+python main.py report --evaluation evaluation_results.json \
+  --training_stats output/customer-support-llm/training_stats.json \
+  --output evaluation_report.html
+```
+
+The report includes:
+
+- **Training statistics:** LoRA/QLoRA (trainable vs total params, duration, config, loss curve)
+- **Evaluation metrics:** relevance (support-keyword hit rate), average response length, number of prompts
+- **Scalability & maintainability:** short notes on adapter-based scaling and versioning
+- **Before/after comparison table:** prompts and model outputs
+
+Open `evaluation_report.html` in a browser to present results.
+
 ## Step 5: Demo (Optional but Encouraged)
 
 Create a simple demo using **Gradio** that:
@@ -182,6 +201,7 @@ If you prefer **not** to use Llama 3.2 for inference (e.g. you use a local Ollam
 |---------|----------------------------------------|-------------------------------------------|
 | **Train**   | Llama 3.2 3B + QLoRA → adapter saved   | *(Training still uses Llama; Ollama is inference-only.)* |
 | **Evaluate**| Base vs fine-tuned comparison          | `evaluate --ollama --ollama-model gemma3:12b` → single model outputs |
+| **Report**  | `report --evaluation ... --training_stats ...` → HTML evaluation report |
 | **Demo**    | Load adapter, chat in Gradio           | `demo --ollama` → Gradio uses Ollama (e.g. Gemma 12B), full chat history |
 
 Ensure Ollama is running (`ollama serve`) and the model is pulled (e.g. `ollama pull gemma3:12b`).

@@ -10,12 +10,14 @@ Usage:
     python main.py train [--subset N] [--output_dir PATH]
     python main.py evaluate [--adapter_path PATH] [--ollama] [--ollama-model NAME]
     python main.py demo [--adapter_path PATH] [--ollama] [--ollama-model NAME]
+    python main.py report [--evaluation PATH] [--training_stats PATH] [--output PATH]
 """
 
 import argparse
 import inspect
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 import warnings
@@ -31,6 +33,8 @@ from transformers import (
     TrainingArguments,
 )
 from trl import SFTConfig, SFTTrainer
+
+from evaluation import compute_evaluation_metrics, generate_evaluation_report
 
 # =============================================================================
 # Configuration
@@ -334,10 +338,39 @@ def train(
         trainer_kw["tokenizer"] = tokenizer
     trainer = SFTTrainer(**trainer_kw)
 
+    # Collect training stats for report
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    training_stats = {
+        "model_name": MODEL_NAME,
+        "trainable_params": trainable,
+        "total_params": total,
+        "trainable_pct": round(100 * trainable / total, 2) if total else 0,
+        "config": {
+            "batch_size": batch_size,
+            "gradient_accumulation_steps": grad_accum,
+            "epochs": TRAINING_CONFIG["epochs"],
+            "max_seq_length": max_len,
+            "learning_rate": TRAINING_CONFIG["learning_rate"],
+            "used_4bit": used_4bit,
+        },
+    }
+
     print("Starting training...")
+    t0 = time.time()
     trainer.train()
+    training_stats["duration_seconds"] = round(time.time() - t0, 1)
+    training_stats["log_history"] = getattr(
+        trainer.state, "log_history", []
+    )
+
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
+
+    stats_path = Path(output_dir) / "training_stats.json"
+    with open(stats_path, "w") as f:
+        json.dump(training_stats, f, indent=2)
+    print(f"Training stats saved to {stats_path}")
 
     print(f"Model and adapter saved to {output_dir}")
     return output_dir
@@ -528,7 +561,7 @@ def generate_response(
 
 
 # =============================================================================
-# Evaluation
+# Evaluation (metrics and report live in evaluation.py)
 # =============================================================================
 
 
@@ -556,10 +589,12 @@ def evaluate(
                 "prompt": prompt,
                 "ollama_output": response,
             })
+        metrics = compute_evaluation_metrics(results, has_fine_tuned=False)
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"results": results, "metrics": metrics}
         with open(output_file, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(payload, f, indent=2)
         print(f"\nEvaluation complete. Results saved to {output_file}")
         for r in results[:3]:
             print(f"\nPrompt: {r['prompt']}")
@@ -602,10 +637,12 @@ def evaluate(
             "commentary": commentary,
         })
 
+    metrics = compute_evaluation_metrics(results, has_fine_tuned=True)
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"results": results, "metrics": metrics}
     with open(output_file, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(payload, f, indent=2)
 
     print(f"\nEvaluation complete. Results saved to {output_file}")
     print("\n" + "=" * 80)
@@ -806,6 +843,36 @@ def main():
         help="Ollama model name (e.g. llama3.2)",
     )
 
+    # Report
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Generate HTML evaluation report from evaluation and optional training stats",
+    )
+    report_parser.add_argument(
+        "--evaluation",
+        type=str,
+        default="evaluation_results.json",
+        help="Path to evaluation_results.json",
+    )
+    report_parser.add_argument(
+        "--training_stats",
+        type=str,
+        default=None,
+        help="Path to training_stats.json (e.g. output/customer-support-llm/training_stats.json)",
+    )
+    report_parser.add_argument(
+        "--output",
+        type=str,
+        default="evaluation_report.html",
+        help="Output HTML file path",
+    )
+    report_parser.add_argument(
+        "--title",
+        type=str,
+        default="Customer Support LLM — Evaluation Report",
+        help="Report title",
+    )
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -825,6 +892,13 @@ def main():
             adapter_path=args.adapter_path,
             use_ollama=getattr(args, "ollama", False),
             ollama_model=getattr(args, "ollama_model", OLLAMA_MODEL_DEFAULT),
+        )
+    elif args.command == "report":
+        generate_evaluation_report(
+            evaluation_path=args.evaluation,
+            output_html_path=args.output,
+            training_stats_path=args.training_stats,
+            title=args.title,
         )
 
 
