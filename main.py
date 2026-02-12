@@ -4,17 +4,20 @@ Customer Support LLM Fine-Tuning with QLoRA
 
 Fine-tunes Llama 3.2 3B on the Bitext Customer Support dataset using QLoRA.
 Implements: data preparation, training, evaluation, and Gradio demo.
+Supports Ollama (localhost) for inference in evaluate and demo.
 
 Usage:
     python main.py train [--subset N] [--output_dir PATH]
-    python main.py evaluate [--adapter_path PATH]
-    python main.py demo [--adapter_path PATH]
+    python main.py evaluate [--adapter_path PATH] [--ollama] [--ollama-model NAME]
+    python main.py demo [--adapter_path PATH] [--ollama] [--ollama-model NAME]
 """
 
 import argparse
 import inspect
 import json
 import os
+import urllib.error
+import urllib.request
 import warnings
 from pathlib import Path
 
@@ -47,6 +50,10 @@ TRAINING_CONFIG = {
     "seed": 42,
     "test_size": 0.05,
 }
+
+# Ollama (localhost) inference – use locally pulled model (e.g. Gemma 12B)
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL_DEFAULT = "gemma3:12b"  # ollama pull gemma3:12b
 
 # 10-15 custom test prompts (NOT from dataset) - from evaluation requirements
 TEST_PROMPTS = [
@@ -337,7 +344,87 @@ def train(
 
 
 # =============================================================================
-# Inference Helpers
+# Ollama (localhost) inference
+# =============================================================================
+
+
+def get_ollama_models(base_url: str = OLLAMA_BASE_URL, timeout: int = 5) -> list[str]:
+    """Return list of locally available Ollama model names."""
+    url = f"{base_url.rstrip('/')}/api/tags"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            out = json.loads(resp.read().decode())
+        return [m.get("name", "") for m in out.get("models", [])]
+    except urllib.error.URLError:
+        return []
+
+
+def ensure_ollama_model(
+    model_name: str,
+    base_url: str = OLLAMA_BASE_URL,
+) -> None:
+    """Check that the model is available locally; list models and raise if missing."""
+    available = get_ollama_models(base_url)
+    if not available:
+        raise RuntimeError(
+            "Ollama not reachable. Start it with: ollama serve"
+        )
+    # Match by name or name:tag (e.g. gemma3:12b)
+    if model_name in available:
+        return
+    for name in available:
+        if name == model_name or name.startswith(model_name + ":"):
+            return
+    raise RuntimeError(
+        f"Ollama model '{model_name}' not found locally. "
+        f"Available: {', '.join(available)}. Pull with: ollama pull {model_name}"
+    )
+
+
+def generate_response_ollama(
+    user_message: str,
+    model_name: str = OLLAMA_MODEL_DEFAULT,
+    system_prompt: str = SYSTEM_PROMPT,
+    base_url: str = OLLAMA_BASE_URL,
+    timeout: int = 300,
+    max_tokens: int | None = None,
+    chat_history: list | None = None,
+) -> str:
+    """
+    Call Ollama chat API on localhost. Pass chat_history so the model sees full conversation.
+    """
+    url = f"{base_url.rstrip('/')}/api/chat"
+    messages = [{"role": "system", "content": system_prompt}]
+    if chat_history:
+        messages.extend(chat_history)
+    messages.append({"role": "user", "content": user_message})
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "stream": False,
+    }
+    if max_tokens is not None:
+        payload["options"] = {"num_predict": max_tokens}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            out = json.loads(resp.read().decode())
+        return out.get("message", {}).get("content", "")
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"Ollama request failed. Is Ollama running? (ollama serve). Error: {e}"
+        ) from e
+
+
+# =============================================================================
+# Inference Helpers (Hugging Face)
 # =============================================================================
 
 
@@ -396,13 +483,13 @@ def generate_response(
     user_message: str,
     max_new_tokens: int = 256,
     temperature: float = 0.7,
+    chat_history: list | None = None,
 ) -> str:
-    """Generate assistant response given user message."""
-    # Chat template for Llama 3.2
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
+    """Generate assistant response; pass chat_history so the model sees full conversation."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if chat_history:
+        messages.extend(chat_history)
+    messages.append({"role": "user", "content": user_message})
 
     text = tokenizer.apply_chat_template(
         messages,
@@ -448,11 +535,38 @@ def generate_response(
 def evaluate(
     adapter_path: str | None = None,
     output_path: str = "evaluation_results.json",
+    use_ollama: bool = False,
+    ollama_model: str = OLLAMA_MODEL_DEFAULT,
 ):
     """
-    Compare base vs fine-tuned model on 10-15 custom test prompts.
-    Saves side-by-side comparison with commentary.
+    Run test prompts: with Ollama (single model) or base vs fine-tuned (Hugging Face).
+    Saves results to JSON.
     """
+    if use_ollama:
+        ensure_ollama_model(ollama_model)
+        print(f"Using Ollama model: {ollama_model} (localhost)")
+        results = []
+        for i, prompt in enumerate(TEST_PROMPTS):
+            short = prompt[:50] + "..." if len(prompt) > 50 else prompt
+            print(f"Evaluating {i + 1}/{len(TEST_PROMPTS)}: {short}")
+            response = generate_response_ollama(
+                prompt, model_name=ollama_model
+            )
+            results.append({
+                "prompt": prompt,
+                "ollama_output": response,
+            })
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\nEvaluation complete. Results saved to {output_file}")
+        for r in results[:3]:
+            print(f"\nPrompt: {r['prompt']}")
+            print(f"Ollama: {r['ollama_output'][:200]}...")
+            print("-" * 40)
+        return results
+
     print("Loading base model...")
     base_model, base_tokenizer = load_model_for_inference(base_only=True)
 
@@ -474,7 +588,6 @@ def evaluate(
         base_response = generate_response(base_model, base_tokenizer, prompt)
         ft_response = generate_response(ft_model, ft_tokenizer, prompt)
 
-        # Simple heuristic commentary
         base_len = len(base_response)
         ft_len = len(ft_response)
         commentary = (
@@ -489,16 +602,12 @@ def evaluate(
             "commentary": commentary,
         })
 
-    # Save results
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-
     with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
 
     print(f"\nEvaluation complete. Results saved to {output_file}")
-
-    # Print summary table
     print("\n" + "=" * 80)
     print("EVALUATION SUMMARY (first 3 prompts)")
     print("=" * 80)
@@ -516,45 +625,83 @@ def evaluate(
 # =============================================================================
 
 
-def run_demo(adapter_path: str | None = None):
-    """Launch Gradio demo for customer support chatbot."""
+def run_demo(
+    adapter_path: str | None = None,
+    use_ollama: bool = False,
+    ollama_model: str = OLLAMA_MODEL_DEFAULT,
+):
+    """Launch Gradio demo; use Ollama (localhost) or Hugging Face model."""
     try:
         import gradio as gr
     except ImportError:
         print("Gradio not installed. Run: pip install gradio")
         return
 
-    # Suppress harmless console warnings during demo
-    warnings.filterwarnings(
-        "ignore",
-        message="To copy construct from a tensor",
-        category=UserWarning,
-        module="transformers",
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message="bitsandbytes was compiled without GPU",
-        category=UserWarning,
-        module="bitsandbytes",
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message="torch_dtype.*deprecated",
-        category=UserWarning,
-        module="transformers",
-    )
-
-    print("Loading model (this may take a minute)...")
-    model, tokenizer = load_model_for_inference(adapter_path)
-
-    # Shorter default max tokens for faster replies on CPU/MPS (each token = 1 forward pass)
     DEFAULT_MAX_TOKENS = 192
 
-    with gr.Blocks(title="Customer Support Chatbot") as demo:
-        gr.Markdown("# Customer Support Chatbot (Fine-tuned Llama 3.2 3B)")
+    if use_ollama:
+        ensure_ollama_model(ollama_model)
+        print(f"Using Ollama model: {ollama_model} (localhost).")
+        model, tokenizer = None, None
+
+        def respond(message, chat_history, max_tokens):
+            if not message.strip():
+                return chat_history, ""
+            n = int(max_tokens) if max_tokens else DEFAULT_MAX_TOKENS
+            response = generate_response_ollama(
+                message,
+                model_name=ollama_model,
+                max_tokens=n,
+                chat_history=chat_history,
+            )
+            return chat_history + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": response},
+            ], ""
+    else:
+        warnings.filterwarnings(
+            "ignore",
+            message="To copy construct from a tensor",
+            category=UserWarning,
+            module="transformers",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="bitsandbytes was compiled without GPU",
+            category=UserWarning,
+            module="bitsandbytes",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="torch_dtype.*deprecated",
+            category=UserWarning,
+            module="transformers",
+        )
+        print("Loading model (this may take a minute)...")
+        model, tokenizer = load_model_for_inference(adapter_path)
+
+        def respond(message, chat_history, max_tokens):
+            if not message.strip():
+                return chat_history, ""
+            n = int(max_tokens) if max_tokens else DEFAULT_MAX_TOKENS
+            response = generate_response(
+                model,
+                tokenizer,
+                message,
+                max_new_tokens=n,
+                chat_history=chat_history,
+            )
+            return chat_history + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": response},
+            ], ""
+
+    title = "Customer Support Chatbot (Ollama)" if use_ollama else "Customer Support Chatbot (Fine-tuned Llama 3.2 3B)"
+    with gr.Blocks(title=title) as demo:
+        gr.Markdown(f"# {title}")
         gr.Markdown(
             "Ask about orders, shipping, refunds, returns, and more. "
-            "Lower **Max response tokens** for faster replies (e.g. on Mac)."
+            "Lower **Max response tokens** for faster replies."
         )
 
         chatbot = gr.Chatbot(label="Conversation", type="messages")
@@ -574,19 +721,6 @@ def run_demo(adapter_path: str | None = None):
         with gr.Row():
             submit = gr.Button("Send")
             clear = gr.Button("Clear")
-
-        def respond(message, chat_history, max_tokens):
-            if not message.strip():
-                return chat_history, ""
-            n = int(max_tokens) if max_tokens else DEFAULT_MAX_TOKENS
-            response = generate_response(
-                model, tokenizer, message, max_new_tokens=n
-            )
-            new_messages = chat_history + [
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": response},
-            ]
-            return new_messages, ""
 
         inputs = [msg, chatbot, max_tokens_slider]
         msg.submit(respond, inputs, [chatbot, msg])
@@ -626,19 +760,30 @@ def main():
 
     # Evaluate
     eval_parser = subparsers.add_parser(
-        "evaluate", help="Compare base vs fine-tuned"
+        "evaluate", help="Compare base vs fine-tuned or run with Ollama"
     )
     eval_parser.add_argument(
         "--adapter_path",
         type=str,
         default="output/customer-support-llm",
-        help="Path to fine-tuned adapter",
+        help="Path to fine-tuned adapter (ignored if --ollama)",
     )
     eval_parser.add_argument(
         "--output",
         type=str,
         default="evaluation_results.json",
         help="Path to save evaluation results",
+    )
+    eval_parser.add_argument(
+        "--ollama",
+        action="store_true",
+        help="Use Ollama model on localhost instead of Hugging Face",
+    )
+    eval_parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=OLLAMA_MODEL_DEFAULT,
+        help="Ollama model name (e.g. llama3.2)",
     )
 
     # Demo
@@ -647,7 +792,18 @@ def main():
         "--adapter_path",
         type=str,
         default="output/customer-support-llm",
-        help="Adapter path (omit for base model)",
+        help="Adapter path (ignored if --ollama)",
+    )
+    demo_parser.add_argument(
+        "--ollama",
+        action="store_true",
+        help="Use Ollama model on localhost instead of Hugging Face",
+    )
+    demo_parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=OLLAMA_MODEL_DEFAULT,
+        help="Ollama model name (e.g. llama3.2)",
     )
 
     args = parser.parse_args()
@@ -661,9 +817,15 @@ def main():
         evaluate(
             adapter_path=args.adapter_path,
             output_path=args.output,
+            use_ollama=getattr(args, "ollama", False),
+            ollama_model=getattr(args, "ollama_model", OLLAMA_MODEL_DEFAULT),
         )
     elif args.command == "demo":
-        run_demo(adapter_path=args.adapter_path)
+        run_demo(
+            adapter_path=args.adapter_path,
+            use_ollama=getattr(args, "ollama", False),
+            ollama_model=getattr(args, "ollama_model", OLLAMA_MODEL_DEFAULT),
+        )
 
 
 if __name__ == "__main__":

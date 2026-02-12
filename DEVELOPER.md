@@ -14,3 +14,20 @@ python main.py evaluate --adapter_path output/customer-support-llm
 
 # Start Gradio demo
 python main.py demo --adapter_path output/customer-support-llm
+
+
+---
+
+
+# Since you already have gemma3:12b pulled in Ollama on localhost,
+# Demo (chat UI):
+python main.py demo --ollama
+
+
+
+# Uses gemma3:12b by default. To be explicit:
+python main.py demo --ollama --ollama-model gemma3:12b
+
+
+# Evaluate (run test prompts and save to JSON):
+python main.py evaluate --ollama --ollama-model gemma3:12b --output ollama_gemma_eval.json
