@@ -20,11 +20,12 @@ By completing this project, you will:
 
 You are tasked with building a **customer support chatbot** trained on historical support conversations.
 
-**Model**: Llama 3.2 3B  
-**Technique**: QLoRA  
+**Model (training)**: Llama 3.2 3B from Hugging Face  
+**Inference**: Fine-tuned adapter **or** a local Ollama model (e.g. Gemma 12B) via `--ollama`  
+**Technique**: QLoRA (for training)  
 **Dataset**: Bitext Customer Support Dataset (Hugging Face)
 
-The goal is to improve the model’s ability to respond clearly, professionally, and accurately to customer queries compared to the base model.
+The goal is to improve the model’s ability to respond clearly, professionally, and accurately to customer queries. You can evaluate and demo with either the fine-tuned Llama adapter or a local Ollama model.
 
 ## What You Need to Do
 

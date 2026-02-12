@@ -105,10 +105,12 @@ You may perform this transformation **in memory** using `datasets.map()` or insi
 
 ## Step 3: Train the Model with QLoRA
 
-### Model
+### Model (training only)
 
-- **Base Model**: Llama 3.2 3B
+- **Base Model**: Llama 3.2 3B (from Hugging Face; used only for training)
 - **Method**: QLoRA (4-bit quantization + LoRA adapters)
+
+> **Note:** Training always uses the Hugging Face model above. For **inference** (evaluate & demo) you can instead use a **local Ollama model** (e.g. Gemma 12B) with `--ollama`; see “Inference options” at the end.
 
 ### Requirements
 
@@ -136,7 +138,7 @@ Recommended starting settings:
 
 ### Objective
 
-Demonstrate that fine-tuning improved behavior compared to the base model.
+Demonstrate model behavior on customer support prompts (either compare base vs fine-tuned, or run a single model such as Ollama).
 
 ### Required Evaluation
 
@@ -144,15 +146,14 @@ Demonstrate that fine-tuning improved behavior compared to the base model.
    - Must not be copied from the dataset
    - Should reflect real customer support scenarios
 
-2. Compare:
+2. **Option A – Hugging Face:** Compare base vs fine-tuned Llama:
    - Base model responses
    - Fine-tuned model responses
+   - Save a side-by-side comparison (prompt, base output, fine-tuned output, commentary).
 
-3. Save a **side-by-side comparison** showing:
-   - Prompt
-   - Base output
-   - Fine-tuned output
-   - Short commentary on differences
+3. **Option B – Ollama (localhost):** Run prompts through your local Ollama model (e.g. Gemma 12B):
+   - `python main.py evaluate --ollama --ollama-model gemma3:12b --output ollama_eval.json`
+   - Results contain prompt + single model output (no base vs fine-tuned comparison).
 
 Focus on:
 
@@ -164,9 +165,23 @@ Focus on:
 
 Create a simple demo using **Gradio** that:
 
-- Loads the base model
-- Applies your fine-tuned adapter
-- Accepts user input
-- Displays the model’s response
+- **Option A – Hugging Face:** Loads the base model, applies your fine-tuned adapter, accepts user input, displays the model’s response.
+- **Option B – Ollama (localhost):** Uses your local Ollama model (no Llama/adapter load):
+  - `python main.py demo --ollama --ollama-model gemma3:12b`
+  - Full chat history is sent each turn so multi-turn answers stay correct.
 
 This demonstrates real-world usability.
+
+---
+
+## Inference options (no Llama required)
+
+If you prefer **not** to use Llama 3.2 for inference (e.g. you use a local Ollama model instead):
+
+| Step    | With Llama / Hugging Face              | With Ollama (localhost)                    |
+|---------|----------------------------------------|-------------------------------------------|
+| **Train**   | Llama 3.2 3B + QLoRA → adapter saved   | *(Training still uses Llama; Ollama is inference-only.)* |
+| **Evaluate**| Base vs fine-tuned comparison          | `evaluate --ollama --ollama-model gemma3:12b` → single model outputs |
+| **Demo**    | Load adapter, chat in Gradio           | `demo --ollama` → Gradio uses Ollama (e.g. Gemma 12B), full chat history |
+
+Ensure Ollama is running (`ollama serve`) and the model is pulled (e.g. `ollama pull gemma3:12b`).
