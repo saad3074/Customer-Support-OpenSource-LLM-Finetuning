@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer Support LLM — Evaluation Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --surface: #18181c;
+      --surface2: #222228;
+      --text: #e4e4e7;
+      --textMuted: #a1a1aa;
+      --accent: #22d3ee;
+      --accentDim: #0891b2;
+      --success: #34d399;
+      --border: #27272a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    h1 { font-size: 1.75rem; font-weight: 700; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+    h2 { font-size: 1.25rem; font-weight: 600; margin: 2rem 0 1rem; color: var(--accent); }
+    .hero {
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .hero p { margin: 0; color: var(--textMuted); font-size: 0.95rem; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+    .card h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--textMuted); margin: 0 0 0.5rem; }
+    .card .value { font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+    .card .value.good { color: var(--success); }
+    .section { margin-bottom: 2rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      background: var(--surface);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--surface2); color: var(--textMuted); font-weight: 600; }
+    td div { max-height: 120px; overflow-y: auto; }
+    .prompt-cell div { max-width: 280px; }
+    .foot-note { font-size: 0.85rem; color: var(--textMuted); margin-top: 1rem; }
+    .loss-chart { height: 200px; background: var(--surface2); border-radius: 10px; padding: 1rem; border: 1px solid var(--border); }
+    .loss-chart svg { width: 100%; height: 100%; }
+    code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: var(--surface2); padding: 0.2em 0.4em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Customer Support LLM — Evaluation Report</h1>
+      <p>Fine-tuning evaluation and model statistics — before/after comparison and LoRA/QLoRA metrics.</p>
+    </div>
+
+    <section class="section">
+      <h2>Training statistics (LoRA / QLoRA)</h2>
+      <p class="foot-note">No training stats file provided. Run <code>train</code> and pass <code>--training_stats</code> to include LoRA/QLoRA stats.</p>
+
+    </section>
+
+    <section class="section">
+      <h2>Evaluation metrics</h2>
+      <div class="grid">
+        <div class="card"><h3>Relevance (base/Ollama)</h3><div class="value good">0.8</div><span class="foot-note">support-keyword hit rate</span></div>
+        <div class="card"><h3>Relevance (fine-tuned)</h3><div class="value good">1.0</div><span class="foot-note">support-keyword hit rate</span></div>
+        <div class="card"><h3>Avg length (base/Ollama)</h3><div class="value">719.6</div><span class="foot-note">chars</span></div>
+        <div class="card"><h3>Avg length (fine-tuned)</h3><div class="value">211.3</div><span class="foot-note">chars</span></div>
+        <div class="card"><h3>Prompts evaluated</h3><div class="value">15</div></div>
+      </div>
+      <p class="foot-note">Relevance: fraction of responses containing support-related keywords. Consistency: same prompt → similar behavior (qualitative).</p>
+    </section>
+
+    <section class="section">
+      <h2>Scalability & maintainability</h2>
+      <div class="grid">
+        <div class="card"><h3>Scalability</h3><p style="margin:0;font-size:0.9rem;">QLoRA keeps memory low by training only adapters; same pipeline scales to larger base models or more data.</p></div>
+        <div class="card"><h3>Maintainability</h3><p style="margin:0;font-size:0.9rem;">Adapter-only checkpoint is small and versioned; base model stays fixed for easy updates and A/B tests.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Before / after comparison</h2>
+      <table>
+        <thead><tr>
+          <th>Prompt</th><th>Base model</th><th>Fine-tuned</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="prompt-cell"><div>I need to cancel my order #12345 as soon as possible.</div></td>
+            <td><div>will get back to you as soon as possible.　ヾsystemystemประโย
+            
+            I need to cancel my order #12345 as soon as possible.　ヾsystemystemประโย
+            
+            You can cancel your order by calling 1-800-123</div></td>
+            <td><div>I'm so sorry to hear that you need to cancel your order with the number {{Order Number}}. I'm here to assist you in the cancellation process. To cancel your order, please follow these steps:
+            
+            1. Log in to your account on our website.
+            2. Navigate to the &quot;My Account&quot; or &quot;Orders&quot; section.
+            3. Locate the</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>Where is my package? I ordered it 5 days ago.</div></td>
+            <td><div>I have no idea. I’m not allowed to access the database. I have to ask my manager. :＼
+            
+            You must have it. I’m not allowed to leave this office without it. :＼
+            
+            How much is it? I can’t tell you. I’m not allowed to tell you. :＼
+            
+            What about it? I don’t know. I’m not allowed to tell you. :＼
+            
+            Where is the n</div></td>
+            <td><div>I'm here to help you with the tracking number for your package. To check the status of your package,</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>How do I get a refund for a defective product?</div></td>
+            <td><div>How do I get a refund for a defective product?ニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニ</div></td>
+            <td><div>I'm glad to hear that you're looking for help to initiate a refund for your defective product. To proceed with the refund process, you can follow these steps:
+            
+            1. Visit the website</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>I want to change the shipping address for my order.</div></td>
+            <td><div>I want to change the shipping address for my order.引用频次.
+            
+            I want to change the shipping address for my order.　ゝ.
+            
+            I want to change the shipping address for my order.ﾐ.
+            
+            I want to change the shipping address for my order.ﾐﾐ.
+            
+            I want to change the shipping address for my order.ﾐﾐﾐ.
+            
+            I want to change t</div></td>
+            <td><div>I'm here to assist you in changing the shipping address for your order. To make the necessary</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>My payment was charged twice, please help.</div></td>
+            <td><div>I’m a teacher, and I need to find out the correct way to say the word “customer” in this situation. […]
+            
+            I’m a teacher, and I need to find out the correct way to say the word “customer” in this situation..…
+            
+            It’s not a customer, it’s a customer! #+# #+# #customer #+# #customer
+            
+            I have a client, and </div></td>
+            <td><div>I'm here to assist you with the issue of your payment being charged twice. I'm sorry for any inconvenience caused. To better understand the situation, could you please provide me with the following information? {{Payment Date}}, {{Payment</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>Can I return an item after 30 days?</div></td>
+            <td><div>I am a customer. I have a 30-day return window. I want to return an item after the 30 days. How can I do that?ニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニニ</div></td>
+            <td><div>I'm here to help you! To</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>I need to cancle my order</div></td>
+            <td><div>I need to cancle my order.</div></td>
+            <td><div>udál
+            
+            We're here to help you! To cancel your order, please follow these steps:
+            
+            1. Log into your account on our website.
+            2. Navigate to the &quot;My Account&quot; or &quot;Orders&quot; section.
+            3. Look for the order you wish to cancel.
+            4. Find the option to &quot;Cancel Order&quot; or &quot;Change Status.&quot;
+            5. Follow the instructions </div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>Order 98765 please cancel it</div></td>
+            <td><div>.
+            
+            Your order number is 98765. #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #</div></td>
+            <td><div>I want to see if I can get a refund on my purchase of {{Product Category}} &quot;{{Product Name}}&quot; with the order number {{Order Number}}aincontriuser
+            
+            I'm here to help you with your request for a refund on your purchase of {{Product Category}} &quot;{{Product Name}}&quot; with the order number {{Order Number}}. I</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>What's the status of my refund request?</div></td>
+            <td><div>The status of your refund request is still pending. #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# </div></td>
+            <td><div>I appreciate your patience as we work on reviewing your refund request. I'm pleased to inform you that your refund is currently in the process of being reviewed. It may take some time for us to complete the review, and we apologize for any inconvenience caused. If you have any specific questions or </div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>How do I track my shipment?</div></td>
+            <td><div>can also use the sentence as a way to emphasize their role and the importance of customer support in a company.
+            
+            How do I track my shipment? νεφοκάλυψης</div></td>
+            <td><div>I'm sorry to hear that you're having trouble tracking your shipment. To assist you, I need more information.</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>I need help with my account login.</div></td>
+            <td><div>..…
+            
+            ## I need help with my account login.
+            
+            I need help with my account login.…
+            
+            ## I need help with my account login.
+            
+            I need help with my account login.…
+            
+            ## I need help with my account login.
+            
+            I need help with my account login.…
+            
+            ## I need help with my account login.
+            
+            I need help with my account </div></td>
+            <td><div>илакти
+            
+            I'm here to help you with your</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>Cancel everything</div></td>
+            <td><div>#+# #
+            
+            The question mark character is a symbol for the “Help” command in many operating systems and computer applications. It is typically used to request assistance or information about the current operating system or application.
+            
+            In programming languages, the question mark is often used as an ope</div></td>
+            <td><div>I'm here to assist you in canceling everything. To complete this process, you can</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>What's the weather today?</div></td>
+            <td><div>What's the weather today?</div></td>
+            <td><div>I'm here to assist you in checking the weather forecast for {{Location}}! To do so, you can visit our website at {{Website URL}} and navigate to the 'Weather' section. There, you will find the current</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>I wanna get my money back for order X</div></td>
+            <td><div>Please, I'm in a hurry. #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# #+# </div></td>
+            <td><div>I'm here to help you with the refund for your order {{Order Number}}. To initiate the process, could you please provide me with the</div></td>
+          </tr>
+          <tr>
+            <td class="prompt-cell"><div>Help me with a return - the item doesn't fit.</div></td>
+            <td><div>I'm sorry, I don't have that size.引用频次-system.ICENSE
+            
+            May I help you with something else?.…
+            
+            The customer service manager wants to be more helpful.　ﾞt.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ.ﾐ</div></td>
+            <td><div>|()
+            Thank you for providing the item number. To initiate a return, you can reach out to our</div></td>
+          </tr>
+        </tbody>
+      </table>
+
+    </section>
+  </div>
+</body>
+</html>
