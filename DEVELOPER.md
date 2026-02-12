@@ -32,12 +32,16 @@ python main.py demo --ollama --ollama-model gemma3:12b
 # Evaluate (run test prompts and save to JSON):
 python main.py evaluate --ollama --ollama-model gemma3:12b --output ollama_gemma_eval.json
 
+# Or with Hugging Face adapter (writes evaluation_results.json by default):
+# python main.py evaluate --adapter_path output/customer-support-llm
 
-# Generate evaluation report (run after evaluate; optional: add training stats for LoRA/QLoRA + loss curve)
+# Generate evaluation report — run one of the evaluate commands above first, then:
 python main.py report --evaluation evaluation_results.json --output evaluation_report.html
+# With training stats (LoRA/QLoRA + loss curve):
 python main.py report --evaluation evaluation_results.json --training_stats output/customer-support-llm/training_stats.json --output evaluation_report.html
+# If you used a different eval output file, pass it: --evaluation ollama_gemma_eval.json
 
-# Check evaluation: open evaluation_results.json (raw results + metrics) or evaluation_report.html in a browser
+# Check evaluation: open evaluation_results.json (raw) or evaluation_report.html in a browser
 
 
 

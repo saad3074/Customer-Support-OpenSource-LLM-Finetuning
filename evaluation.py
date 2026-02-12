@@ -77,6 +77,13 @@ def generate_evaluation_report(
     """Generate a self-contained HTML evaluation report for demos."""
     evaluation_path = Path(evaluation_path)
     output_html_path = Path(output_html_path)
+    if not evaluation_path.exists():
+        raise FileNotFoundError(
+            f"Evaluation file not found: {evaluation_path}\n"
+            "Run evaluation first, e.g.:\n"
+            "  python main.py evaluate --output evaluation_results.json\n"
+            "  python main.py evaluate --ollama --output evaluation_results.json"
+        )
     results, metrics = load_evaluation_payload(evaluation_path)
     training = {}
     if training_stats_path and Path(training_stats_path).exists():
