@@ -82,8 +82,30 @@
     </div>
 
     <section class="section">
+      <h2>Evaluation setup (base vs fine-tuned)</h2>
+      <p><strong>Base model</strong> = Llama 3.2 3B with <em>no</em> adapter (out-of-the-box).</p>
+      <p><strong>Fine-tuned</strong> = same base model + customer-support adapter from <code>output/customer-support-llm</code>.</p>
+
+    </section>
+
+    <section class="section">
       <h2>Training statistics (LoRA / QLoRA)</h2>
-      <p class="foot-note">No training stats file provided. Run <code>train</code> and pass <code>--training_stats</code> to include LoRA/QLoRA stats.</p>
+
+      <div class="grid">
+        <div class="card"><h3>Trainable params</h3><div class="value">24,313,856</div></div>
+        <div class="card"><h3>Total params</h3><div class="value">3,237,063,680</div></div>
+        <div class="card"><h3>Trainable %</h3><div class="value">0.75%</div></div>
+        <div class="card"><h3>Duration</h3><div class="value">4028.0s</div></div>
+      </div>
+      <div class="card" style="margin-top:1rem"><h3>Config</h3><pre style="margin:0;font-size:0.85rem;color:var(--textMuted);">{
+  &quot;batch_size&quot;: 1,
+  &quot;gradient_accumulation_steps&quot;: 16,
+  &quot;epochs&quot;: 1,
+  &quot;max_seq_length&quot;: 1024,
+  &quot;learning_rate&quot;: 0.0002,
+  &quot;used_4bit&quot;: false
+}</pre></div>
+      <div class="loss-chart"><svg viewBox="0 0 800 180"><polyline fill="none" stroke="var(--accent)" stroke-width="2" points="40.0,40.0 400.0,130.24953789279115 760.0,140.0"/></svg></div>
 
     </section>
 
@@ -95,8 +117,21 @@
         <div class="card"><h3>Avg length (base/Ollama)</h3><div class="value">719.6</div><span class="foot-note">chars</span></div>
         <div class="card"><h3>Avg length (fine-tuned)</h3><div class="value">211.3</div><span class="foot-note">chars</span></div>
         <div class="card"><h3>Prompts evaluated</h3><div class="value">15</div></div>
+        <div class="card"><h3>Empty / short replies</h3><div class="value">0 / 0</div><span class="foot-note">&lt;20 chars</span></div>
       </div>
-      <p class="foot-note">Relevance: fraction of responses containing support-related keywords. Consistency: same prompt → similar behavior (qualitative).</p>
+      <p class="foot-note">Relevance: fraction of responses containing support-related keywords. Keyword density: average count of support-related terms per response.</p>
+    </section>
+
+    <section class="section">
+      <h2>Model performance & cost</h2>
+      <div class="grid">
+        <div class="card"><h3>Final training loss</h3><div class="value">1.4232</div></div>
+        <div class="card"><h3>Min training loss</h3><div class="value">1.4232</div></div>
+        <div class="card"><h3>Compute proxy</h3><div class="value">97.94</div><span class="foot-note">duration × trainable_params / 1e9</span></div>
+        <div class="card"><h3>Training wall time</h3><div class="value">4028s</div><span class="foot-note">~67.1 min</span></div>
+        <div class="card"><h3>Efficiency (trainable)</h3><div class="value">24,313,856</div><span class="foot-note">of 3,237,063,680 total params</span></div>
+      </div>
+      <p class="foot-note">Compute proxy is a relative cost indicator (training time × trainable params). Lower loss and higher relevance indicate better model performance.</p>
     </section>
 
     <section class="section">

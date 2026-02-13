@@ -593,7 +593,7 @@ def evaluate(
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {"results": results, "metrics": metrics}
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
         print(f"\nEvaluation complete. Results saved to {output_file}")
         for r in results[:3]:
@@ -602,17 +602,27 @@ def evaluate(
             print("-" * 40)
         return results
 
-    print("Loading base model...")
+    print("Loading base model (no adapter)...")
     base_model, base_tokenizer = load_model_for_inference(base_only=True)
 
-    print("Loading fine-tuned model...")
+    adapter_loaded = False
     if adapter_path and os.path.exists(adapter_path):
+        print("Loading fine-tuned model (base + adapter)...")
         ft_model, ft_tokenizer = load_model_for_inference(adapter_path)
+        adapter_loaded = True
     else:
         print(
-            "No adapter path or path missing. Using base model for both."
+            "WARNING: No adapter path or path missing. "
+            "Using base model for BOTH columns — comparison will not show fine-tuning effect."
         )
+        print(f"  Adapter path used: {adapter_path!r}")
         ft_model, ft_tokenizer = base_model, base_tokenizer
+
+    evaluation_config = {
+        "base_model": MODEL_NAME,
+        "adapter_path": adapter_path,
+        "adapter_loaded": adapter_loaded,
+    }
 
     results = []
 
@@ -640,8 +650,12 @@ def evaluate(
     metrics = compute_evaluation_metrics(results, has_fine_tuned=True)
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"results": results, "metrics": metrics}
-    with open(output_file, "w") as f:
+    payload = {
+        "results": results,
+        "metrics": metrics,
+        "evaluation_config": evaluation_config,
+    }
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
     print(f"\nEvaluation complete. Results saved to {output_file}")
@@ -780,7 +794,8 @@ def main():
 
     # Train
     train_parser = subparsers.add_parser(
-        "train", help="Run QLoRA fine-tuning"
+        "train",
+        help="Run QLoRA fine-tuning (uses 4-bit QLoRA when CUDA + bitsandbytes available to reduce memory)",
     )
     train_parser.add_argument(
         "--subset",

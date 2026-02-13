@@ -15,6 +15,23 @@ SUPPORT_KEYWORDS = (
 )
 
 
+def _length_stats(lengths: list[int]) -> dict:
+    """Return min, max, avg, std for a list of lengths. std is 0 if n < 2."""
+    if not lengths:
+        return {"min": 0, "max": 0, "avg": 0.0, "std": 0.0}
+    n = len(lengths)
+    avg = sum(lengths) / n
+    if n < 2:
+        return {"min": min(lengths), "max": max(lengths), "avg": round(avg, 1), "std": 0.0}
+    variance = sum((x - avg) ** 2 for x in lengths) / (n - 1)
+    return {
+        "min": min(lengths),
+        "max": max(lengths),
+        "avg": round(avg, 1),
+        "std": round(variance ** 0.5, 1),
+    }
+
+
 def compute_evaluation_metrics(
     results: list, has_fine_tuned: bool
 ) -> dict:
@@ -23,9 +40,12 @@ def compute_evaluation_metrics(
     if n == 0:
         return {"num_prompts": 0}
 
+    def lengths(key: str) -> list[int]:
+        return [len(r.get(key, "") or "") for r in results]
+
     def avg_len(key: str) -> float:
-        lengths = [len(r.get(key, "")) for r in results]
-        return round(sum(lengths) / n, 1) if lengths else 0
+        L = lengths(key)
+        return round(sum(L) / n, 1) if L else 0
 
     def relevance_score(key: str) -> float:
         hits = 0
@@ -34,6 +54,23 @@ def compute_evaluation_metrics(
             if any(kw in text for kw in SUPPORT_KEYWORDS):
                 hits += 1
         return round(hits / n, 2) if n else 0
+
+    def keyword_count_avg(key: str) -> float:
+        total = 0
+        for r in results:
+            text = (r.get(key) or "").lower()
+            total += sum(1 for kw in SUPPORT_KEYWORDS if kw in text)
+        return round(total / n, 1) if n else 0
+
+    def empty_and_short(key: str, short_threshold: int = 20) -> tuple[int, int]:
+        empty = short = 0
+        for r in results:
+            s = (r.get(key) or "").strip()
+            if not s:
+                empty += 1
+            elif len(s) < short_threshold:
+                short += 1
+        return empty, short
 
     metrics = {
         "num_prompts": n,
@@ -44,6 +81,24 @@ def compute_evaluation_metrics(
         "relevance_score_fine_tuned": relevance_score("fine_tuned_output") if has_fine_tuned else None,
         "relevance_score_ollama": relevance_score("ollama_output") if not has_fine_tuned else None,
     }
+
+    # Length stats (min, max, std) for primary output column
+    out_key = "fine_tuned_output" if has_fine_tuned else "ollama_output"
+    if has_fine_tuned:
+        metrics["length_stats_base"] = _length_stats(lengths("base_output"))
+        metrics["length_stats_fine_tuned"] = _length_stats(lengths("fine_tuned_output"))
+    else:
+        metrics["length_stats_ollama"] = _length_stats(lengths("ollama_output"))
+
+    # Quality proxies: empty/short responses, keyword density
+    empty_ft, short_ft = empty_and_short(out_key)
+    metrics["empty_responses"] = empty_ft
+    metrics["short_responses"] = short_ft
+    metrics["keyword_count_avg"] = keyword_count_avg(out_key)
+
+    if has_fine_tuned:
+        metrics["keyword_count_avg_base"] = keyword_count_avg("base_output")
+
     return metrics
 
 
@@ -61,6 +116,16 @@ def load_evaluation_payload(path: str | Path) -> tuple[list, dict]:
         has_ft = "fine_tuned_output" in (results[0] or {})
         metrics = compute_evaluation_metrics(results, has_fine_tuned=has_ft)
     return results, metrics
+
+
+def _load_evaluation_config(path: str | Path) -> dict:
+    """Load evaluation_config from JSON if present (base_model, adapter_path, adapter_loaded)."""
+    path = Path(path)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict) and "evaluation_config" in data:
+        return data["evaluation_config"]
+    return {}
 
 
 # =============================================================================
@@ -85,6 +150,7 @@ def generate_evaluation_report(
             "  python main.py evaluate --ollama --output evaluation_results.json"
         )
     results, metrics = load_evaluation_payload(evaluation_path)
+    evaluation_config = _load_evaluation_config(evaluation_path)
     training = {}
     if training_stats_path and Path(training_stats_path).exists():
         with open(training_stats_path, encoding="utf-8") as f:
@@ -124,6 +190,21 @@ def generate_evaluation_report(
     avg_base = metrics.get("avg_length_base") or metrics.get("avg_length_ollama")
     avg_ft = metrics.get("avg_length_fine_tuned")
     num_prompts = metrics.get("num_prompts", len(results))
+    length_stats = metrics.get("length_stats_fine_tuned") or metrics.get("length_stats_ollama") or {}
+    empty_resp = metrics.get("empty_responses", 0)
+    short_resp = metrics.get("short_responses", 0)
+    keyword_avg = metrics.get("keyword_count_avg")
+
+    # Training-derived: loss and cost proxy (from training_stats)
+    final_loss = min_loss = cost_proxy = None
+    if loss_values:
+        final_loss = round(loss_values[-1], 4)
+        min_loss = round(min(loss_values), 4)
+    if training:
+        dur = training.get("duration_seconds")
+        trainable = training.get("trainable_params") or 0
+        if isinstance(dur, (int, float)) and trainable:
+            cost_proxy = round(dur * trainable / 1e9, 2)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -209,6 +290,26 @@ def generate_evaluation_report(
     </div>
 
     <section class="section">
+      <h2>Evaluation setup (base vs fine-tuned)</h2>
+      <p><strong>Base model</strong> = {esc(evaluation_config.get("base_model", "Llama 3.2 3B"))} with <em>no</em> adapter (out-of-the-box).</p>
+      <p><strong>Fine-tuned</strong> = same base model + customer-support adapter from <code>{esc(str(evaluation_config.get("adapter_path", "output/customer-support-llm")))}</code>.</p>
+"""
+    adapter_loaded = evaluation_config.get("adapter_loaded")
+    if adapter_loaded is False and has_fine_tuned:
+        html += """
+      <div class="card" style="border-color: #f59e0b; background: rgba(245,158,11,0.1);">
+        <h3>⚠️ Adapter was not loaded</h3>
+        <p style="margin:0;">This run used the <strong>base model for both columns</strong>. The &quot;Fine-tuned&quot; column does not have the adapter. Re-run <code>evaluate</code> with a valid <code>--adapter_path</code> (e.g. output/customer-support-llm) to compare base vs fine-tuned.</p>
+      </div>
+"""
+    elif adapter_loaded is True:
+        html += """
+      <p class="foot-note">✓ Adapter was loaded; Base and Fine-tuned columns use different models.</p>
+"""
+    html += """
+    </section>
+
+    <section class="section">
       <h2>Training statistics (LoRA / QLoRA)</h2>
 """
     if training:
@@ -258,8 +359,34 @@ def generate_evaluation_report(
     if avg_ft is not None:
         html += f'        <div class="card"><h3>Avg length (fine-tuned)</h3><div class="value">{avg_ft}</div><span class="foot-note">chars</span></div>\n'
     html += f'        <div class="card"><h3>Prompts evaluated</h3><div class="value">{num_prompts}</div></div>\n'
+    if length_stats:
+        html += f'        <div class="card"><h3>Response length (min / max)</h3><div class="value">{length_stats.get("min", 0)} / {length_stats.get("max", 0)}</div><span class="foot-note">chars</span></div>\n'
+        html += f'        <div class="card"><h3>Length std dev</h3><div class="value">{length_stats.get("std", 0)}</div><span class="foot-note">chars</span></div>\n'
+    if keyword_avg is not None:
+        html += f'        <div class="card"><h3>Keyword density</h3><div class="value">{keyword_avg}</div><span class="foot-note">avg support keywords per reply</span></div>\n'
+    html += f'        <div class="card"><h3>Empty / short replies</h3><div class="value">{empty_resp} / {short_resp}</div><span class="foot-note">&lt;20 chars</span></div>\n'
     html += """      </div>
-      <p class="foot-note">Relevance: fraction of responses containing support-related keywords. Consistency: same prompt → similar behavior (qualitative).</p>
+      <p class="foot-note">Relevance: fraction of responses containing support-related keywords. Keyword density: average count of support-related terms per response.</p>
+    </section>
+
+    <section class="section">
+      <h2>Model performance & cost</h2>
+      <div class="grid">
+"""
+    if final_loss is not None:
+        html += f'        <div class="card"><h3>Final training loss</h3><div class="value">{final_loss}</div></div>\n'
+    if min_loss is not None:
+        html += f'        <div class="card"><h3>Min training loss</h3><div class="value">{min_loss}</div></div>\n'
+    if cost_proxy is not None:
+        html += f'        <div class="card"><h3>Compute proxy</h3><div class="value">{cost_proxy}</div><span class="foot-note">duration × trainable_params / 1e9</span></div>\n'
+    if training and training.get("duration_seconds") is not None:
+        d = training["duration_seconds"]
+        html += f'        <div class="card"><h3>Training wall time</h3><div class="value">{d:.0f}s</div><span class="foot-note">~{d/60:.1f} min</span></div>\n'
+    if training and (training.get("trainable_params") or training.get("total_params")):
+        t, tot = training.get("trainable_params") or 0, training.get("total_params") or 0
+        html += f'        <div class="card"><h3>Efficiency (trainable)</h3><div class="value">{t:,}</div><span class="foot-note">of {tot:,} total params</span></div>\n'
+    html += """      </div>
+      <p class="foot-note">Compute proxy is a relative cost indicator (training time × trainable params). Lower loss and higher relevance indicate better model performance.</p>
     </section>
 
     <section class="section">
